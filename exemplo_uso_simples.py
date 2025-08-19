@@ -6,10 +6,10 @@ Exemplo de uso simples dos módulos de controle do 25IOB16
 # Escolha uma das implementações:
 
 # Versão 1: Socket puro (mais simples, sem dependências)
-from modbus_25iob16_socket import Modbus25IOB16Socket
+#from modbus_25iob16_socket import Modbus25IOB16Socket
 
 # Versão 2: Pymodbus (mais recursos, precisa instalar: pip install pymodbus)
-# from modbus_25iob16_pymodbus import Modbus25IOB16Pymodbus
+from modbus_25iob16_pymodbus import Modbus25IOB16Pymodbus
 
 def exemplo_socket():
     """Exemplo usando socket puro"""

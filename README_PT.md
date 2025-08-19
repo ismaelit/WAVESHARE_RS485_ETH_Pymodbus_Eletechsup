@@ -29,6 +29,7 @@ Multi-Host Settings > Protocol > Modbus TCP to RTU
 - ✅ Usa biblioteca pymodbus 3.11.1+
 - ✅ Mais recursos (leitura de status, melhor tratamento de erros)
 - ✅ Mais robusta para aplicações complexas
+- ✅ Retry automático com reconexão (3 tentativas) para estabilidade de rede
 
 ## Instalação
 
@@ -73,11 +74,14 @@ try:
     modbus.liga_canal(3)
     
     # Leitura de status
-    saidas = modbus.le_status_saidas()      # Lista com status das 16 saídas
-    entradas = modbus.le_status_entradas()  # Lista com status das 16 entradas
+    saidas_brutas = modbus.le_status_saidas()         # Valores brutos dos registradores (0-15)
+    saidas_digitais = modbus.le_status_saidas_digitais()  # Estados digitais [0,1] x16
+    entradas = modbus.le_status_entradas()            # Estados das entradas [0,1] x16
     
-    print(f"Status das saídas: {saidas}")
+    print(f"Status das saídas (digital): {saidas_digitais}")
     print(f"Status das entradas: {entradas}")
+    print(f"Saídas ativas: {[i+1 for i, s in enumerate(saidas_digitais) if s]}")
+    print(f"Entradas ativas: {[i+1 for i, s in enumerate(entradas) if s]}")
     
 finally:
     modbus.disconnect()
@@ -92,13 +96,33 @@ finally:
 | `liga_canal(n)` | Liga saída do canal n (1-16) | n-1 | 256 (0x0100) |
 | `desliga_canal(n)` | Desliga saída do canal n (1-16) | n-1 | 512 (0x0200) |
 | `toggle_canal(n)` | Alterna estado do canal n (1-16) | n-1 | 768 (0x0300) |
-| `le_status_saidas()` | Lê status das saídas (só pymodbus) | 0-15 | - |
-| `le_status_entradas()` | Lê status das entradas (só pymodbus) | 16-31 | - |
+| `le_status_saidas()` | Lê valores brutos dos registradores (pymodbus) | 0-15 | Valores brutos |
+| `le_status_saidas_digitais()` | Lê estados das saídas como lista 0/1 (pymodbus) | 0-15 | [0,1] x16 |
+| `le_status_entradas()` | Lê estados das entradas como lista 0/1 (pymodbus) | 192 | [0,1] x16 |
 
 ## Mapeamento de Registradores
 
-- **Registros 0-15**: Controle das saídas digitais (canais 1-16)
-- **Registros 16-31**: Status das entradas digitais (canais 1-16)
+### Saídas Digitais (Operações de Escrita)
+- **Registros 0-15**: Controle individual das saídas digitais (canais 1-16)
+  - Registro 0 = Saída Canal 1
+  - Registro 1 = Saída Canal 2
+  - ...
+  - Registro 15 = Saída Canal 16
+  - Valores: 256 (LIGA), 512 (DESLIGA), 768 (ALTERNA), 1792 (LIGA TUDO), 2048 (DESLIGA TUDO)
+
+### Entradas Digitais (Operações de Leitura)
+- **Registro 192**: Todas as 16 entradas digitais
+  - Bit 0 = Entrada Canal 1
+  - Bit 1 = Entrada Canal 2
+  - ...
+  - Bit 15 = Entrada Canal 16
+  - Cada bit: 1 = Ativo, 0 = Inativo
+
+### Status das Saídas Digitais (Operações de Leitura)
+- **Registros 0-15**: Leitura do status das saídas digitais
+  - Mesmos registros usados para controle podem ser lidos para status
+  - Valores não-zero indicam saída LIGADA
+  - Valores zero indicam saída DESLIGADA
 
 ## Exemplo Completo
 
@@ -121,6 +145,53 @@ O gateway deve estar configurado com:
 - **Parity**: None
 - **Stop bits**: 1
 
+## Recursos de Confiabilidade (Versão Pymodbus)
+
+### Retry Automático com Reconexão
+A implementação pymodbus inclui funcionalidade de retry automático para melhor estabilidade de rede:
+
+- **3 tentativas automáticas** para cada operação (leitura/escrita)
+- **Reconexão automática** se a conexão for perdida
+- **Delay de 1 segundo** entre tentativas de retry
+- **Tratamento gracioso de erros** com mensagens detalhadas
+
+Exemplo do comportamento de retry:
+```python
+# Se a conexão de rede falhar durante operação:
+# Tentativa 1: Tenta operação -> Conexão perdida
+# Tentativa 2: Reconecta + Tenta operação -> Erro Modbus
+# Tentativa 3: Reconecta + Tenta operação -> Sucesso
+
+modbus = Modbus25IOB16Pymodbus("10.0.2.218")
+modbus.connect()
+
+# Isso automaticamente tentará novamente se ocorrerem problemas de conexão
+result = modbus.liga_canal(5)  # Operação robusta com retry
+inputs = modbus.le_status_entradas()  # Leitura robusta com retry
+```
+
+### Recuperação de Erros
+- **Erros de conexão**: Reconexão automática
+- **Erros do protocolo Modbus**: Retry com conexão renovada
+- **Timeouts de rede**: Timeout configurável (padrão: 5 segundos)
+
+## Scripts de Teste
+
+### Teste Completo de I/O
+```bash
+python3 teste_completo_io.py    # Menu interativo para teste abrangente
+```
+
+### Teste Rápido
+```bash
+python3 teste_final.py          # Teste rápido não-interativo
+```
+
+### Investigação do Mapeamento de Entradas
+```bash
+python3 investigar_entradas.py  # Para debug de problemas de mapeamento de entradas
+```
+
 ## Troubleshooting
 
 ### Erro de Conexão
@@ -139,7 +210,7 @@ O gateway deve estar configurado com:
 
 ## Protocolo Modbus
 
-Este projeto usa **Function Code 06 (Write Single Register)** para controle das saídas e **Function Code 03 (Read Holding Registers)** para leitura de status.
+Este projeto usa **Function Code 06 (Write Single Register)** para controle das saídas e **Function Code 03 (Read Holding Registers)** para leitura de status (tanto saídas quanto entradas).
 
 ### Frame de exemplo (Liga todas as saídas):
 ```

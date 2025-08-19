@@ -30,6 +30,7 @@ Multi-Host Settings > Protocol > Modbus TCP to RTU
 - ✅ Uses pymodbus 3.11.1+ library
 - ✅ More features (status reading, better error handling)
 - ✅ More robust for complex applications
+- ✅ Automatic retry with reconnection (3 attempts) for network stability
 
 ## Installation
 
@@ -74,11 +75,14 @@ try:
     modbus.liga_canal(3)
     
     # Status reading
-    outputs = modbus.le_status_saidas()     # List with 16 output states
-    inputs = modbus.le_status_entradas()    # List with 16 input states
+    outputs_raw = modbus.le_status_saidas()         # Raw register values (0-15)
+    outputs_digital = modbus.le_status_saidas_digitais()  # Digital states [0,1] x16
+    inputs = modbus.le_status_entradas()            # Digital input states [0,1] x16
     
-    print(f"Output states: {outputs}")
+    print(f"Output states (digital): {outputs_digital}")
     print(f"Input states: {inputs}")
+    print(f"Active outputs: {[i+1 for i, s in enumerate(outputs_digital) if s]}")
+    print(f"Active inputs: {[i+1 for i, s in enumerate(inputs) if s]}")
     
 finally:
     modbus.disconnect()
@@ -93,13 +97,33 @@ finally:
 | `liga_canal(n)` | Turn ON channel n output (1-16) | n-1 | 256 (0x0100) |
 | `desliga_canal(n)` | Turn OFF channel n output (1-16) | n-1 | 512 (0x0200) |
 | `toggle_canal(n)` | Toggle channel n state (1-16) | n-1 | 768 (0x0300) |
-| `le_status_saidas()` | Read output states (pymodbus only) | 0-15 | - |
-| `le_status_entradas()` | Read input states (pymodbus only) | 16-31 | - |
+| `le_status_saidas()` | Read raw output register values (pymodbus) | 0-15 | Raw values |
+| `le_status_saidas_digitais()` | Read output states as 0/1 list (pymodbus) | 0-15 | [0,1] x16 |
+| `le_status_entradas()` | Read input states as 0/1 list (pymodbus) | 192 | [0,1] x16 |
 
 ## Register Mapping
 
-- **Registers 0-15**: Digital output control (channels 1-16)
-- **Registers 16-31**: Digital input status (channels 1-16)
+### Digital Outputs (Write Operations)
+- **Registers 0-15**: Individual digital output control (channels 1-16)
+  - Register 0 = Output Channel 1
+  - Register 1 = Output Channel 2
+  - ...
+  - Register 15 = Output Channel 16
+  - Values: 256 (ON), 512 (OFF), 768 (TOGGLE), 1792 (ALL ON), 2048 (ALL OFF)
+
+### Digital Inputs (Read Operations)
+- **Register 192**: All 16 digital input states
+  - Bit 0 = Input Channel 1
+  - Bit 1 = Input Channel 2
+  - ...
+  - Bit 15 = Input Channel 16
+  - Each bit: 1 = Active, 0 = Inactive
+
+### Digital Output Status (Read Operations)
+- **Registers 0-15**: Digital output status reading
+  - Same registers used for control can be read for status
+  - Non-zero values indicate output is ON
+  - Zero values indicate output is OFF
 
 ## Complete Example
 
@@ -122,6 +146,53 @@ The gateway should be configured with:
 - **Parity**: None
 - **Stop bits**: 1
 
+## Reliability Features (Pymodbus Version)
+
+### Automatic Retry with Reconnection
+The pymodbus implementation includes automatic retry functionality for improved network stability:
+
+- **3 automatic attempts** for each operation (read/write)
+- **Automatic reconnection** if connection is lost
+- **1-second delay** between retry attempts
+- **Graceful error handling** with detailed error messages
+
+Example of retry behavior:
+```python
+# If network connection fails during operation:
+# Attempt 1: Try operation -> Connection lost
+# Attempt 2: Reconnect + Try operation -> Modbus error
+# Attempt 3: Reconnect + Try operation -> Success
+
+modbus = Modbus25IOB16Pymodbus("10.0.2.218")
+modbus.connect()
+
+# This will automatically retry if connection issues occur
+result = modbus.liga_canal(5)  # Robust operation with retry
+inputs = modbus.le_status_entradas()  # Robust reading with retry
+```
+
+### Error Recovery
+- **Connection errors**: Automatic reconnection
+- **Modbus protocol errors**: Retry with fresh connection
+- **Network timeouts**: Configurable timeout (default: 5 seconds)
+
+## Testing Scripts
+
+### Complete I/O Test
+```bash
+python3 teste_completo_io.py    # Interactive menu for comprehensive testing
+```
+
+### Quick Test
+```bash
+python3 teste_final.py          # Non-interactive quick test
+```
+
+### Input Mapping Investigation
+```bash
+python3 investigar_entradas.py  # For debugging input mapping issues
+```
+
 ## Troubleshooting
 
 ### Connection Error
@@ -140,7 +211,7 @@ The gateway should be configured with:
 
 ## Modbus Protocol
 
-This project uses **Function Code 06 (Write Single Register)** for output control and **Function Code 03 (Read Holding Registers)** for status reading.
+This project uses **Function Code 06 (Write Single Register)** for output control and **Function Code 03 (Read Holding Registers)** for status reading (both outputs and inputs).
 
 ### Example frame (Turn ON all outputs):
 ```
