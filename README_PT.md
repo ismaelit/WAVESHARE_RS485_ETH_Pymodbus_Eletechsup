@@ -7,6 +7,12 @@ Este projeto implementa controle Python para o módulo de I/O digital **Eletechs
 - **Gateway**: WAVESHARE RS485 TO POE ETH (B)
   - Configurado em modo Modbus TCP Server (porta 502)
   - Converte Modbus TCP para Modbus RTU via RS485
+``` Network Settings > Work Mode > TCP Server
+Device Port > 502
+Serial Settings > Baud Rate 9600 8N1  
+Multi-Host Settings > Protocol > Modbus TCP to RTU
+```
+
 - **Módulo I/O**: Eletechsup 25IOB16_NPN
   - 16 entradas digitais + 16 saídas digitais
   - Comunicação RS485 (A/B)

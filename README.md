@@ -7,6 +7,13 @@ This project implements Python control for the **Eletechsup 25IOB16_NPN** digita
 - **Gateway**: WAVESHARE RS485 TO POE ETH (B)
   - Configured as Modbus TCP Server (port 502)
   - Converts Modbus TCP to Modbus RTU via RS485
+``` Network Settings > Work Mode > TCP Server
+Device Port > 502
+Serial Settings > Baud Rate 9600 8N1 
+Multi-Host Settings > Protocol > Modbus TCP to RTU
+```
+
+
 - **I/O Module**: Eletechsup 25IOB16_NPN
   - 16 digital inputs + 16 digital outputs
   - RS485 communication (A/B)
