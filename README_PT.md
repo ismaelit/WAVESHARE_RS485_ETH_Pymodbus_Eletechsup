@@ -1,3 +1,5 @@
+https://asutp.org/news/eletechsup_23ioa08_23iob16_23ioc24_23iod32_23ioe48_manual_modbus_command/2023-07-10-220
+
 # Controle do Módulo Eletechsup 25IOB16_NPN via Modbus TCP
 
 Este projeto implementa controle Python para o módulo de I/O digital **Eletechsup 25IOB16_NPN** através de um gateway **WAVESHARE RS485 TO POE ETH (B)** configurado em modo Modbus TCP to RTU.

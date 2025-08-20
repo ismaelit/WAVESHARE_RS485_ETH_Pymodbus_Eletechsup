@@ -8,20 +8,51 @@ from pymodbus.exceptions import ModbusException
 import time
 
 class Modbus25IOB16Pymodbus:
+    # Client compartilhado entre todas as instâncias (best practice pymodbus)
+    _shared_client = None
+    _shared_client_config = None
+    
     def __init__(self, host, port=502, unit_id=1, timeout=5):
         self.host = host
         self.port = port
         self.unit_id = unit_id
         self.timeout = timeout
-        self.client = None
+        
+        # Usa client compartilhado se configuração for a mesma
+        if (Modbus25IOB16Pymodbus._shared_client_config == (host, port) and 
+            Modbus25IOB16Pymodbus._shared_client is not None):
+            self.client = Modbus25IOB16Pymodbus._shared_client
+        else:
+            # Cria novo client compartilhado
+            self.client = None
+            Modbus25IOB16Pymodbus._shared_client = None
+            Modbus25IOB16Pymodbus._shared_client_config = (host, port)
     
     def connect(self):
-        """Estabelece conexão com o gateway"""
+        """Estabelece conexão compartilhada com o gateway"""
         try:
-            self.client = ModbusTcpClient(self.host, port=self.port, timeout=self.timeout)
-            return self.client.connect()
+            # Se já existe um client compartilhado conectado, usa ele
+            if (Modbus25IOB16Pymodbus._shared_client is not None and 
+                Modbus25IOB16Pymodbus._shared_client.connected):
+                self.client = Modbus25IOB16Pymodbus._shared_client
+                return True
+                
+            # Cria nova conexão compartilhada
+            if Modbus25IOB16Pymodbus._shared_client:
+                Modbus25IOB16Pymodbus._shared_client.close()
+                
+            Modbus25IOB16Pymodbus._shared_client = ModbusTcpClient(
+                self.host, port=self.port, timeout=self.timeout
+            )
+            
+            if Modbus25IOB16Pymodbus._shared_client.connect():
+                self.client = Modbus25IOB16Pymodbus._shared_client
+                return True
+            else:
+                return False
+                
         except Exception as e:
-            print(f"Erro na conexão: {e}")
+            print(f"Erro na conexão unit_id {self.unit_id}: {e}")
             return False
     
     def disconnect(self):
@@ -30,37 +61,20 @@ class Modbus25IOB16Pymodbus:
             self.client.close()
     
     def _write_register(self, register, value):
-        """Escreve valor em registrador usando Function Code 06 com retry automático"""
-        max_tentativas = 3
-        
-        for tentativa in range(max_tentativas):
-            if not self.client or not self.client.connected:
-                if not self.connect():
-                    if tentativa < max_tentativas - 1:
-                        print(f"Tentativa {tentativa + 1}/{max_tentativas} de reconexão falhou, tentando novamente...")
-                        time.sleep(1)
-                        continue
-                    return False
-            
-            try:
-                result = self.client.write_register(register, value, device_id=self.unit_id)
-                return not result.isError()
-            except ModbusException as e:
-                print(f"Erro Modbus (tentativa {tentativa + 1}/{max_tentativas}): {e}")
-                if tentativa < max_tentativas - 1:
-                    self.disconnect()
-                    time.sleep(1)
-                    continue
-                return False
-            except Exception as e:
-                print(f"Erro na comunicação (tentativa {tentativa + 1}/{max_tentativas}): {e}")
-                if tentativa < max_tentativas - 1:
-                    self.disconnect()
-                    time.sleep(1)
-                    continue
+        """Escreve valor em registrador usando Function Code 06"""
+        if not self.client or not self.client.connected:
+            if not self.connect():
                 return False
         
-        return False
+        try:
+            result = self.client.write_register(register, value, device_id=self.unit_id)
+            if result.isError():
+                print(f"Erro na escrita para unit_id {self.unit_id}: {result}")
+                return False
+            return True
+        except Exception as e:
+            print(f"Erro na comunicação unit_id {self.unit_id}: {e}")
+            return False
     
     def liga_tudo(self):
         """Liga todas as saídas (reg 0 = 1792 = 0x0700)"""
@@ -95,52 +109,32 @@ class Modbus25IOB16Pymodbus:
         return self._write_register(register, 512)  # 0x0200
     
     def le_status_entradas(self):
-        """Lê status das entradas digitais (registrador 192) com retry automático"""
-        max_tentativas = 3
-        
-        for tentativa in range(max_tentativas):
-            if not self.client or not self.client.connected:
-                if not self.connect():
-                    if tentativa < max_tentativas - 1:
-                        time.sleep(1)
-                        continue
-                    return None
-            
-            try:
-                # Baseado na investigação: 
-                # - Registrador 192 contém todas as 16 entradas digitais
-                # - Bit N do registrador = Entrada N+1 (bit 0 = entrada 1, bit 8 = entrada 9, etc.)
-                
-                result_192 = self.client.read_holding_registers(192, count=1, device_id=self.unit_id)
-                
-                if not result_192.isError():
-                    valor_192 = result_192.registers[0]
-                    
-                    # Constrói a lista de 16 entradas
-                    entradas = [0] * 16
-                    
-                    # Processa todos os 16 bits do registrador 192
-                    for bit in range(16):
-                        if valor_192 & (1 << bit):
-                            entradas[bit] = 1  # bit N = entrada N+1
-                    
-                    return entradas
-                else:
-                    print(f"Erro ao ler entradas (tentativa {tentativa + 1}/{max_tentativas}): {result_192}")
-                    if tentativa < max_tentativas - 1:
-                        self.disconnect()
-                        time.sleep(1)
-                        continue
-                    return None
-            except Exception as e:
-                print(f"Erro na leitura das entradas (tentativa {tentativa + 1}/{max_tentativas}): {e}")
-                if tentativa < max_tentativas - 1:
-                    self.disconnect()
-                    time.sleep(1)
-                    continue
+        """Lê status das entradas digitais (registrador 192)"""
+        if not self.client or not self.client.connected:
+            if not self.connect():
                 return None
         
-        return None
+        try:
+            result_192 = self.client.read_holding_registers(192, count=1, device_id=self.unit_id)
+            
+            if not result_192.isError():
+                valor_192 = result_192.registers[0]
+                
+                # Constrói a lista de 16 entradas
+                entradas = [0] * 16
+                
+                # Processa todos os 16 bits do registrador 192
+                for bit in range(16):
+                    if valor_192 & (1 << bit):
+                        entradas[bit] = 1  # bit N = entrada N+1
+                
+                return entradas
+            else:
+                print(f"Erro ao ler entradas unit_id {self.unit_id}: {result_192}")
+                return None
+        except Exception as e:
+            print(f"Erro na leitura das entradas unit_id {self.unit_id}: {e}")
+            return None
     
     def le_status_saidas(self):
         """Lê status das saídas digitais (registradores 0-15) - retorna registradores brutos"""
@@ -182,10 +176,10 @@ class Modbus25IOB16Pymodbus:
                 
                 return saidas
             else:
-                print(f"Erro ao ler saídas: {result}")
+                print(f"Erro ao ler saídas unit_id {self.unit_id}: {result}")
                 return None
         except Exception as e:
-            print(f"Erro na leitura: {e}")
+            print(f"Erro na leitura unit_id {self.unit_id}: {e}")
             return None
 
 
