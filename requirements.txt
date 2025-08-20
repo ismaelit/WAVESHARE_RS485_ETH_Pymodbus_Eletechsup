@@ -1,0 +1,11 @@
+# Requirements para Monitor e Controle Multi-Módulo 25IOB16
+# Script: ___monitor_controle_multimodulo.py
+
+# Biblioteca principal para comunicação Modbus TCP
+pymodbus>=3.0.0
+
+# Dependências opcionais para melhor performance
+# (descomente se necessário)
+# pyserial>=3.5
+# asyncio-mqtt>=0.11.0
+
