@@ -26,8 +26,8 @@ COMANDOS HIERÁRQUICOS:
 - on3.7: Ligar saída 7 do módulo 3
 - off1.12: Desligar saída 12 do módulo 1
 - all_on.2: Ligar todas saídas do módulo 2
-- read1: Ler todas saídas do módulo 1 (sob demanda)
-- read1.5: Ler saída 5 do módulo 1 (sob demanda)
+- out1: Ler todas saídas do módulo 1 (sob demanda)
+- out1.5: Ler saída 5 do módulo 1 (sob demanda)
 - status: Mostrar estado de todos módulos
 - help: Mostrar ajuda
 - quit: Sair
@@ -85,12 +85,6 @@ class MonitorMultiModulo:
         
         # Controle de frequência de leitura das entradas
         self.ultima_leitura_entradas = {}
-        
-        # Controle de polling sob demanda por módulo
-        self.polling_entradas_habilitado = {}    # True/False para cada módulo
-        self.polling_saidas_habilitado = {}      # True/False para cada módulo  
-        self.polling_saidas_intervalo = {}       # Intervalo para polling de saídas por módulo
-        self.ultima_leitura_saidas = {}          # Timestamp da última leitura de saídas
         
         # Thread de comandos e leitura de entradas
         self.comando_queue = queue.Queue()
@@ -224,15 +218,6 @@ class MonitorMultiModulo:
             # Inicializa timestamp de leitura das entradas
             self.ultima_leitura_entradas[unit_id] = time.time()  # Inicializa com tempo atual
             print(f"   ⏰ M{unit_id} - Timestamp inicializado: {self.ultima_leitura_entradas[unit_id]}")
-            
-            # Inicializa controles de polling
-            config = self.configuracoes_modulos.get(unit_id, {'max_portas': 16, 'tem_entradas': True})
-            self.polling_entradas_habilitado[unit_id] = config['tem_entradas']  # Habilitado por padrão se tem entradas
-            self.polling_saidas_habilitado[unit_id] = False  # Desabilitado por padrão
-            self.polling_saidas_intervalo[unit_id] = 1.0     # 1 segundo por padrão
-            self.ultima_leitura_saidas[unit_id] = time.time()
-            print(f"   🔄 M{unit_id} - Polling entradas: {'ON' if self.polling_entradas_habilitado[unit_id] else 'OFF'}")
-            print(f"   🔄 M{unit_id} - Polling saídas: {'ON' if self.polling_saidas_habilitado[unit_id] else 'OFF'}")
         
         return True
     
@@ -300,28 +285,20 @@ class MonitorMultiModulo:
         - "all_on.2" -> ("all_on", 2, None)
         """
         try:
-            # Handle commands without dot like 'read1', 'read2'
+            # Handle commands without dot like 'out1', 'out2', 'in1', 'in2'
             if "." not in comando:
-                # Check for commands like 'read1', 'read2'
+                # Check for commands like 'out1', 'out2', 'in1', 'in2'
                 import re
                 match = re.match(r'^([a-z_]+)(\d+)$', comando)
                 if match:
                     prefixo, modulo_str = match.groups()
-                    if prefixo == 'read':
+                    if prefixo in ['out', 'in']:
                         modulo = int(modulo_str)
                         return prefixo, modulo, None
                 return None, None, None
             
             # Separa comando e endereço hierárquico
-            # Primeiro verifica comandos com 2 pontos: "polling.1.in", "polling.1.out"
-            if comando.count('.') == 2:
-                import re
-                match_special = re.match(r'^([a-z_]+)\.(\d+)\.([a-z]+)$', comando)
-                if match_special:
-                    prefixo, modulo_str, tipo = match_special.groups()
-                    if prefixo == 'polling':
-                        modulo = int(modulo_str)
-                        return f"{prefixo}.{tipo}", modulo, None  # Ex: "polling.in", modulo, None
+
             
             elif comando.count('.') == 1:
                 # Casos: "1.5", "all_on.2"
@@ -334,21 +311,17 @@ class MonitorMultiModulo:
                     porta = int(parte2)
                     return "", modulo, porta
                 else:
-                    # Comando com prefixo: "all_on.2", "t2.3", "on3.7", "test_polling.1"
+                    # Comando com prefixo: "all_on.2", "t2.3", "on3.7"
                     # Extrai prefixo e números
                     import re
                     
-                    # Verifica comandos normais: "t2.3", "on3.7", "test_polling.1"
+                    # Verifica comandos normais: "t2.3", "on3.7"
                     match = re.match(r'^([a-z_]+)(\d*)\.(\d+)$', comando)
                     if match:
                         prefixo, modulo_str, porta_str = match.groups()
                         
                         if prefixo in ['all_on', 'all_off']:
                             # Comandos globais: "all_on.2"
-                            modulo = int(porta_str)  # Na verdade é o módulo
-                            return prefixo, modulo, None
-                        elif prefixo == 'test_polling':
-                            # Comando test_polling.1
                             modulo = int(porta_str)  # Na verdade é o módulo
                             return prefixo, modulo, None
                         else:
@@ -524,56 +497,34 @@ class MonitorMultiModulo:
                     print(f"❌ Erro ao desligar todas saídas do módulo {modulo}")
                     return False
             
-            elif cmd_base == "test_polling":
-                # Testa o polling das entradas
-                print(f"🧪 Testando polling do módulo {modulo}...")
-                tempo_atual = time.time()
-                
-                # Teste entradas
-                config = self.configuracoes_modulos.get(modulo, {'max_portas': 16, 'tem_entradas': True})
-                if config['tem_entradas']:
-                    tempo_desde_ultima = tempo_atual - self.ultima_leitura_entradas[modulo]
-                    print(f"   📥 ENTRADAS:")
-                    print(f"      • Status: {'HABILITADO' if self.polling_entradas_habilitado[modulo] else 'DESABILITADO'}")
-                    print(f"      • Tempo desde última leitura: {tempo_desde_ultima:.3f}s")
-                    print(f"      • Intervalo configurado: {INTERVALO_LEITURA_ENTRADAS:.3f}s")
-                    print(f"      • Deve ler agora: {tempo_desde_ultima >= INTERVALO_LEITURA_ENTRADAS}")
-                else:
-                    print(f"   📥 ENTRADAS: Módulo {modulo} não possui entradas")
-                    
-                # Teste saídas
-                tempo_desde_ultima_saidas = tempo_atual - self.ultima_leitura_saidas[modulo]
-                print(f"   📤 SAÍDAS:")
-                print(f"      • Status: {'HABILITADO' if self.polling_saidas_habilitado[modulo] else 'DESABILITADO'}")
-                print(f"      • Tempo desde última leitura: {tempo_desde_ultima_saidas:.3f}s")
-                print(f"      • Intervalo configurado: {self.polling_saidas_intervalo[modulo]:.3f}s")
-                print(f"      • Deve ler agora: {tempo_desde_ultima_saidas >= self.polling_saidas_intervalo[modulo]}")
-                return True
-                
-            elif cmd_base == "polling.in":
-                # Controla polling de entradas: polling.1.in
+            elif cmd_base == "in":
+                # Lê todas as entradas do módulo: "in1"
                 config = self.configuracoes_modulos.get(modulo, {'max_portas': 16, 'tem_entradas': True})
                 if not config['tem_entradas']:
                     print(f"❌ Módulo {modulo} não possui entradas digitais")
                     return False
                     
-                # Toggle do estado do polling de entradas
-                self.polling_entradas_habilitado[modulo] = not self.polling_entradas_habilitado[modulo]
-                status = "HABILITADO" if self.polling_entradas_habilitado[modulo] else "DESABILITADO"
-                print(f"✅ Polling de entradas M{modulo}: {status}")
-                return True
+                print(f"📡 M{modulo} - Lendo todas as entradas...")
+                entradas = self.modulos[modulo].le_status_entradas()
+                if entradas is not None:
+                    # Atualiza estado atual das entradas
+                    self.estados_atuais_entradas[modulo] = entradas.copy()
+                    
+                    # Mostra todas as entradas de uma vez
+                    print(f"📊 M{modulo} - Status de todas as entradas:")
+                    for i in range(16):
+                        estado = "ON" if entradas[i] else "OFF"
+                        print(f"📥 Entrada {i+1}: {estado}")
+                    
+                    entradas_ativas = [i+1 for i, x in enumerate(entradas) if x]
+                    print(f"📡 M{modulo} - Resumo: {entradas_ativas if entradas_ativas else 'Nenhuma'} ativa(s)")
+                    return True
+                else:
+                    print(f"❌ Erro ao ler entradas do módulo {modulo}")
+                    return False
                 
-            elif cmd_base == "polling.out":
-                # Controla polling de saídas: polling.1.out
-                self.polling_saidas_habilitado[modulo] = not self.polling_saidas_habilitado[modulo]
-                status = "HABILITADO" if self.polling_saidas_habilitado[modulo] else "DESABILITADO"
-                print(f"✅ Polling de saídas M{modulo}: {status}")
-                if self.polling_saidas_habilitado[modulo]:
-                    print(f"   • Intervalo: {self.polling_saidas_intervalo[modulo]:.1f}s")
-                return True
-                
-            elif cmd_base == "read":
-                # Ler saídas sob demanda: "read1" ou "read1.5"
+            elif cmd_base == "out":
+                # Ler saídas sob demanda: "out1" ou "out1.5"
                 if porta is None:
                     # Lê todas as saídas do módulo de uma vez (otimizado)
                     print(f"📡 M{modulo} - Lendo todas as saídas...")
@@ -586,8 +537,8 @@ class MonitorMultiModulo:
                         # Mostra todas as saídas de uma vez
                         print(f"📊 M{modulo} - Status de todas as saídas:")
                         for i in range(max_portas):
-                            estado = "LIGADA" if saidas[i] > 0 else "DESLIGADA"
-                            print(f"   • Saída {i+1}: {estado}")
+                            estado = "ON" if saidas[i] > 0 else "OFF"
+                            print(f"📤 Saída {i+1}: {estado}")
                         
                         saidas_ativas = [i+1 for i, x in enumerate(saidas[:max_portas]) if x]
                         print(f"📡 M{modulo} - Resumo: {saidas_ativas if saidas_ativas else 'Nenhuma'} ativa(s)")
@@ -603,7 +554,7 @@ class MonitorMultiModulo:
                         # Atualiza apenas a saída específica no estado atual
                         if hasattr(self, 'estados_atuais_saidas') and modulo in self.estados_atuais_saidas:
                             self.estados_atuais_saidas[modulo][porta-1] = status
-                        estado = "LIGADA" if status > 0 else "DESLIGADA"
+                        estado = "ON" if status > 0 else "OFF"
                         print(f"📡 M{modulo}.S{porta} - Estado: {estado}")
                         return True
                     else:
@@ -634,16 +585,13 @@ class MonitorMultiModulo:
         print("│   all_off.1   : Desligar todas saídas do módulo 1      │")
         print("├─────────────────────────────────────────────────────────┤")
         print("│ LEITURA DE SAÍDAS (SOB DEMANDA):                       │")
-        print("│   read1       : Ler todas saídas do módulo 1           │")
-        print("│   read1.5     : Ler saída 5 do módulo 1               │")
-        print("│   read2       : Ler todas saídas do módulo 2           │")
+        print("│   out1        : Ler todas saídas do módulo 1           │")
+        print("│   out1.5      : Ler saída 5 do módulo 1               │")
+        print("│   out2        : Ler todas saídas do módulo 2           │")
         print("├─────────────────────────────────────────────────────────┤")
-        print("│ CONTROLE DE POLLING:                                   │")
-        print("│   polling.1.in   : Toggle polling entradas módulo 1    │")
-        print("│   polling.1.out  : Toggle polling saídas módulo 1      │")
-        print("│   polling.2.out  : Toggle polling saídas módulo 2      │")
-        print("│   test_polling.1 : Status polling do módulo 1          │")
-        print("│   test_polling.2 : Status polling do módulo 2          │")
+        print("│ LEITURA DE ENTRADAS:                                   │")
+        print("│   in1          : Ler todas entradas do módulo 1        │")
+        print("│   in2          : Ler todas entradas do módulo 2        │")
         print("├─────────────────────────────────────────────────────────┤")
         print("│ CONFIGURAÇÃO TOGGLE:                                    │")
         print("│   t1.3        : Toggle entrada 3 do módulo 1           │")
@@ -696,11 +644,10 @@ class MonitorMultiModulo:
             toggle_ativo = [i+1 for i, x in enumerate(self.toggle_habilitado[unit_id]) if x]
             print(f"   🔄 TOGGLE: {toggle_ativo if toggle_ativo else 'Nenhum'}")
             
-            # Status do polling
+            # Status das entradas
             config = self.configuracoes_modulos.get(unit_id, {'max_portas': 16, 'tem_entradas': True})
-            polling_in = "ON" if (config['tem_entradas'] and self.polling_entradas_habilitado[unit_id]) else "OFF"
-            polling_out = "ON" if self.polling_saidas_habilitado[unit_id] else "OFF"
-            print(f"   🔄 POLLING: IN:{polling_in} | OUT:{polling_out}")
+            entradas_status = "SIM" if config['tem_entradas'] else "NÃO"
+            print(f"   📥 ENTRADAS: {entradas_status}")
             
             # Estatísticas por módulo
             print(f"   📈 STATS: L:{self.contadores_leituras[unit_id]} | C:{self.contadores_comandos[unit_id]} | T:{self.contadores_toggles[unit_id]}")
@@ -719,10 +666,10 @@ class MonitorMultiModulo:
         print("=" * 70)
     
     def mostrar_mudancas(self, mudancas_por_modulo):
-        """Mostra mudanças detectadas em todos os módulos"""
+        """Mostra status atual de todos os módulos"""
         timestamp = self.formatar_tempo()
         
-        print(f"\n⚡ MUDANÇAS DETECTADAS [{timestamp}]")
+        print(f"\n📊 STATUS ATUAL [{timestamp}]")
         
         for unit_id, dados in mudancas_por_modulo.items():
             bordas = dados['bordas_subida']
@@ -730,17 +677,16 @@ class MonitorMultiModulo:
             entradas = dados['entradas_ativas']
             saidas = dados['saidas_ativas']
             
-            if bordas or toggles:
-                print(f"   🔧 MÓDULO {unit_id}:")
-                
-                if bordas:
-                    print(f"      🔍 Bordas ↗️: E{bordas}")
-                
-                if toggles:
-                    for toggle in toggles:
-                        print(f"      🔄 {toggle}")
-                
-                print(f"      📊 E: {entradas if entradas else '□'} | S: {saidas if saidas else '□'}")
+            print(f"   🔧 MÓDULO {unit_id}:")
+            print(f"      📥 ENTRADAS: {entradas if entradas else '□'}")
+            print(f"      📤 SAÍDAS: {saidas if saidas else '□'}")
+            
+            if bordas:
+                print(f"      🔍 Bordas ↗️: E{bordas}")
+            
+            if toggles:
+                for toggle in toggles:
+                    print(f"      🔄 {toggle}")
     
     def executar_ciclo_leitura_modulo(self, unit_id):
         """Executa um ciclo de leitura para um módulo específico com retry robusto"""
@@ -750,21 +696,15 @@ class MonitorMultiModulo:
             
             tempo_atual = time.time()
             
-            # 1. Lê estado atual das entradas (apenas se o módulo tem entradas e tempo suficiente)
+            # 1. Lê estado atual das entradas (SEMPRE lê se o módulo tem entradas)
             entradas_atual = None
-            tempo_desde_ultima = tempo_atual - self.ultima_leitura_entradas[unit_id]
-            print(f"   ⏰ M{unit_id} - Tempo desde última leitura: {tempo_desde_ultima:.3f}s (limite: {INTERVALO_LEITURA_ENTRADAS:.3f}s)")
-            
-            if (config['tem_entradas'] and 
-                self.polling_entradas_habilitado[unit_id] and 
-                tempo_desde_ultima >= INTERVALO_LEITURA_ENTRADAS):
-                print(f"   ✅ M{unit_id} - Hora de ler entradas!")
+            if config['tem_entradas']:
+                print(f"   ✅ M{unit_id} - Lendo entradas...")
                 # Retry robusto para leitura de entradas - REGISTRO 192 (OTIMIZADO!)
                 for tentativa in range(MAX_TENTATIVAS_RETRY):
                     try:
                         entradas_atual = self.modulos[unit_id].le_status_entradas()
                         if entradas_atual is not None:
-                            self.ultima_leitura_entradas[unit_id] = tempo_atual
                             print(f"📡 M{unit_id} - Entradas lidas (reg 192): {entradas_atual}")
                             break
                         time.sleep(0.1)  # Pequeno delay entre tentativas
@@ -777,32 +717,11 @@ class MonitorMultiModulo:
                 if entradas_atual is None:
                     return None
             else:
-                # Módulo sem entradas ou ainda não é hora de ler - usa estado anterior
-                print(f"   ⏭️ M{unit_id} - Ainda não é hora de ler entradas")
-                entradas_atual = self.estados_atuais_entradas[unit_id].copy()
+                # Módulo sem entradas - cria array vazio
+                entradas_atual = [0] * 16
             
-            # 2. SAÍDAS: Lê automaticamente apenas se polling estiver habilitado
-            saidas_digitais = None
-            if self.polling_saidas_habilitado[unit_id]:
-                tempo_desde_ultima_saidas = tempo_atual - self.ultima_leitura_saidas[unit_id]
-                if tempo_desde_ultima_saidas >= self.polling_saidas_intervalo[unit_id]:
-                    print(f"   ✅ M{unit_id} - Hora de ler saídas!")
-                    for tentativa in range(MAX_TENTATIVAS_RETRY):
-                        try:
-                            saidas_digitais = self.modulos[unit_id].le_status_saidas_digitais()
-                            if saidas_digitais is not None:
-                                self.ultima_leitura_saidas[unit_id] = tempo_atual
-                                print(f"📡 M{unit_id} - Saídas lidas: {saidas_digitais}")
-                                break
-                            time.sleep(0.1)
-                        except Exception as e:
-                            if tentativa == MAX_TENTATIVAS_RETRY - 1:
-                                print(f"❌ Falha na leitura de saídas M{unit_id} após {MAX_TENTATIVAS_RETRY} tentativas: {e}")
-                            time.sleep(0.2)
-            
-            # Se não leu saídas agora, mantém estado anterior
-            if saidas_digitais is None:
-                saidas_digitais = self.estados_atuais_saidas[unit_id].copy()
+            # 2. SAÍDAS: Mantém estado anterior (não lê automaticamente)
+            saidas_digitais = self.estados_atuais_saidas[unit_id].copy()
             
             # Ajusta tamanho do array de saídas conforme o módulo
             max_portas = config['max_portas']
@@ -832,22 +751,22 @@ class MonitorMultiModulo:
             # 6. Atualiza contador
             self.contadores_leituras[unit_id] += 1
             
-            # 7. Retorna dados de mudanças (apenas entradas)
-            mudou_entradas = entradas_atual != self.estados_anteriores_entradas[unit_id]
-            mudou_toggles = len(toggles_executados) > 0
+            # 7. Retorna dados de mudanças (sempre mostra entradas ativas)
+            entradas_ativas = [i+1 for i, x in enumerate(entradas_atual) if x]
+            saidas_ativas = [i+1 for i, x in enumerate(saidas_digitais) if x]
             
-            print(f"   🔍 M{unit_id} - Análise de mudanças:")
-            print(f"      • Entradas mudaram: {mudou_entradas}")
-            print(f"      • Toggles executados: {mudou_toggles}")
-            print(f"      • Estado anterior: {self.estados_anteriores_entradas[unit_id]}")
-            print(f"      • Estado atual: {entradas_atual}")
+            print(f"   🔍 M{unit_id} - Status atual:")
+            print(f"      • Entradas ativas: {entradas_ativas if entradas_ativas else 'Nenhuma'}")
+            print(f"      • Saídas ativas: {saidas_ativas if saidas_ativas else 'Nenhuma'}")
+            print(f"      • Bordas detectadas: {bordas_subida if bordas_subida else 'Nenhuma'}")
+            print(f"      • Toggles executados: {toggles_executados if toggles_executados else 'Nenhuma'}")
             
             return {
                 'bordas_subida': bordas_subida,
                 'toggles_executados': toggles_executados,
-                'entradas_ativas': [i+1 for i, x in enumerate(entradas_atual) if x],
-                'saidas_ativas': [i+1 for i, x in enumerate(saidas_digitais) if x],
-                'mudou': (mudou_entradas or mudou_toggles)  # Não considera mudanças nas saídas
+                'entradas_ativas': entradas_ativas,
+                'saidas_ativas': saidas_ativas,
+                'mudou': True  # Sempre mostra o status
             }
             
         except Exception as e:
@@ -864,8 +783,7 @@ class MonitorMultiModulo:
                 ciclo += 1
                 print(f"🔄 Ciclo de leitura #{ciclo} - {self.formatar_tempo()}")
                 
-                mudancas_por_modulo = {}
-                houve_mudancas = False
+                resultados_modulos = {}
                 
                 # Lê todos os módulos com controle de concorrência
                 with self.lock_modulos:
@@ -874,21 +792,14 @@ class MonitorMultiModulo:
                         resultado = self.executar_ciclo_leitura_modulo(unit_id)
                         
                         if resultado is not None:
-                            mudancas_por_modulo[unit_id] = resultado
-                            if resultado['mudou']:
-                                houve_mudancas = True
-                                print(f"   ✅ Módulo {unit_id} - Mudanças detectadas!")
-                            else:
-                                print(f"   ⏭️ Módulo {unit_id} - Sem mudanças")
+                            resultados_modulos[unit_id] = resultado
+                            print(f"   ✅ Módulo {unit_id} - Leitura bem-sucedida")
                         else:
                             print(f"   ❌ Falha na leitura do módulo {unit_id}")
                 
-                # Mostra mudanças se houver
-                if houve_mudancas:
-                    print(f"   🔄 Mostrando mudanças...")
-                    self.mostrar_mudancas(mudancas_por_modulo)
-                else:
-                    print(f"   📊 Nenhuma mudança detectada neste ciclo")
+                # Sempre mostra o status atual
+                print(f"   🔄 Mostrando status atual...")
+                self.mostrar_mudancas(resultados_modulos)
                 
                 # Aguarda próximo ciclo de leitura de entradas
                 print(f"   ⏰ Aguardando {INTERVALO_LEITURA_ENTRADAS*1000:.0f}ms para próximo ciclo...")
@@ -908,7 +819,7 @@ class MonitorMultiModulo:
         print(f"   • Gateway: {self.gateway_ip}:{self.gateway_porta}")
         print(f"   • Módulos: {self.modulos_enderecos}")
         print(f"   • Intervalo entradas: {INTERVALO_LEITURA_ENTRADAS*1000:.0f}ms (automático)")
-        print(f"   • Saídas: Leitura sob demanda (comando 'read')")
+        print(f"   • Saídas: Leitura sob demanda (comando 'out')")
         print(f"   • Endereçamento: módulo.porta (ex: 1.5, 2.3)")
         print("=" * 70)
         
