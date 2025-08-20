@@ -51,6 +51,12 @@ INTERVALO_LEITURA_ENTRADAS = 0.5             # 500ms - leitura automática das e
 TIMEOUT_THREAD_COMANDOS = 8.0                # Timeout para comandos
 TIMEOUT_ERRO_EXECUCAO = 2.0                  # Timeout para recuperação
 MAX_TENTATIVAS_RETRY = 3                     # Máximo de tentativas por operação
+
+# =============================================================================
+# CONFIGURAÇÕES DE POLLING ESPECÍFICO
+# =============================================================================
+SET_POLLING_IN1 = True                       # Polling automático das entradas do módulo 1
+INTERVALO_POLLING_IN1 = 0.2                  # 200ms - polling específico para in1
 # =============================================================================
 
 class MonitorMultiModulo:
@@ -83,13 +89,14 @@ class MonitorMultiModulo:
         # Configurações gerais
         self.mostrar_detalhado = True
         
-        # Controle de frequência de leitura das entradas
-        self.ultima_leitura_entradas = {}
+        # Controle de polling específico para in1
+        self.estado_anterior_in1 = [0] * 16  # Estado anterior das entradas do módulo 1
         
         # Thread de comandos e leitura de entradas
         self.comando_queue = queue.Queue()
         self.thread_comandos = None
         self.thread_leitura_entradas = None
+        self.thread_polling_in1 = None
         
         # Locks para controle de concorrência
         self.lock_estados = threading.Lock()
@@ -215,9 +222,10 @@ class MonitorMultiModulo:
             self.contadores_comandos[unit_id] = 0
             self.contadores_toggles[unit_id] = 0
             
-            # Inicializa timestamp de leitura das entradas
-            self.ultima_leitura_entradas[unit_id] = time.time()  # Inicializa com tempo atual
-            print(f"   ⏰ M{unit_id} - Timestamp inicializado: {self.ultima_leitura_entradas[unit_id]}")
+            # Inicializa estado anterior do in1 se for o módulo 1
+            if unit_id == 1:
+                self.estado_anterior_in1 = [0] * 16
+                print(f"   🔄 M1 - Estado anterior das entradas inicializado")
         
         return True
     
@@ -229,6 +237,8 @@ class MonitorMultiModulo:
             self.thread_comandos.join(timeout=TIMEOUT_THREAD_COMANDOS)
         if self.thread_leitura_entradas and self.thread_leitura_entradas.is_alive():
             self.thread_leitura_entradas.join(timeout=TIMEOUT_THREAD_COMANDOS)
+        if self.thread_polling_in1 and self.thread_polling_in1.is_alive():
+            self.thread_polling_in1.join(timeout=TIMEOUT_THREAD_COMANDOS)
     
     def conectar_todos(self):
         """Estabelece conexão com módulos detectados"""
@@ -811,6 +821,44 @@ class MonitorMultiModulo:
         
         print("🔄 Thread de leitura de entradas finalizada")
     
+    def thread_polling_in1_worker(self):
+        """Worker da thread dedicada para polling específico das entradas do módulo 1"""
+        if not SET_POLLING_IN1:
+            return
+            
+        print("🔄 Polling IN1 ativo")
+        ciclo = 0
+        
+        while self.executando:
+            try:
+                ciclo += 1
+                
+                # Lê entradas do módulo 1
+                with self.lock_modulos:
+                    if 1 in self.modulos:
+                        entradas_atual = self.modulos[1].le_status_entradas()
+                        if entradas_atual is not None:
+                            # Verifica se houve mudança
+                            if entradas_atual != self.estado_anterior_in1:
+                                # Atualiza estado anterior
+                                self.estado_anterior_in1 = entradas_atual.copy()
+                                
+                                # Mostra mudança de forma resumida
+                                entradas_ativas = [i+1 for i, x in enumerate(entradas_atual) if x]
+                                print(f"🔄 M1 - MUDANÇA: {entradas_ativas if entradas_ativas else '□'} ativa(s)")
+                                
+                                # Atualiza estado atual
+                                self.estados_atuais_entradas[1] = entradas_atual.copy()
+                
+                # Aguarda próximo ciclo de polling
+                time.sleep(INTERVALO_POLLING_IN1)
+                
+            except Exception as e:
+                print(f"❌ Erro polling IN1: {e}")
+                time.sleep(TIMEOUT_ERRO_EXECUCAO)
+        
+        print("🔄 Polling IN1 finalizado")
+    
     def executar_monitor_multimodulo(self):
         """Executa o monitor multi-módulo completo com leitura otimizada"""
         print("🚀 MONITOR MULTI-MÓDULO - 25IOB16 (LEITURA OTIMIZADA)")
@@ -868,6 +916,17 @@ class MonitorMultiModulo:
         self.thread_leitura_entradas = threading.Thread(target=self.thread_leitura_entradas, daemon=True, name="Thread_Leitura_Entradas")
         self.thread_leitura_entradas.start()
         print(f"✅ Thread de leitura iniciada: {self.thread_leitura_entradas.name}")
+        
+        # Inicia thread de polling específico para in1 (se habilitado)
+        if SET_POLLING_IN1:
+            def polling_in1_wrapper():
+                self.thread_polling_in1_worker()
+            
+            self.thread_polling_in1 = threading.Thread(target=polling_in1_wrapper, daemon=True, name="Thread_Polling_IN1")
+            self.thread_polling_in1.start()
+            print(f"✅ Polling IN1 iniciado ({INTERVALO_POLLING_IN1*1000:.0f}ms)")
+        else:
+            print("⏭️ Polling IN1 desabilitado")
         
         print("\n🔄 Monitor multi-módulo ativo! Digite comandos ou 'help' para ajuda")
         print("   💡 Formato: módulo.porta (ex: 1.5 = toggle saída 5 do módulo 1)")
