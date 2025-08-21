@@ -38,7 +38,8 @@ class MonitorMultiModulo:
         # Configuração dos módulos (considerados sempre existentes)
         self.configuracoes_modulos = {
             1: {'max_portas': 16, 'tem_entradas': True},   # Módulo 1: 16 portas com entradas
-            2: {'max_portas': 4, 'tem_entradas': False}    # Módulo 2: 4 portas sem entradas
+            2: {'max_portas': 4, 'tem_entradas': False},    # Módulo 2: 4 portas sem entradas
+            # 3: {'max_portas': 4, 'tem_entradas': False}    # Módulo 3: 4 portas sem entradas
         }
         
         self.modulos_enderecos = list(self.configuracoes_modulos.keys())
