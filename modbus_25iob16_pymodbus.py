@@ -7,6 +7,11 @@ from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 import time
 import logging
+import os
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
 
 class Modbus25IOB16Pymodbus:
     # Client compartilhado entre todas as instâncias (best practice pymodbus)
@@ -392,9 +397,13 @@ class Modbus25IOB16Pymodbus:
 if __name__ == "__main__":
     print("🚀 TESTE OTIMIZADO - Eletechsup 25IOB16 com timeouts ajustados")
     print("=" * 60)
-    
-    # Configura conexão com IP correto do problema relatado
-    modbus = Modbus25IOB16Pymodbus("10.0.2.217", timeout=15)  # Timeout aumentado
+
+    # Carrega configurações do .env
+    ip_modbus = os.getenv("MODBUS_IP", "10.0.2.70")
+    timeout_modbus = int(os.getenv("MODBUS_TIMEOUT", "15"))
+
+    # Configura conexão
+    modbus = Modbus25IOB16Pymodbus(ip_modbus, timeout=timeout_modbus)
     
     # Habilita logs de diagnóstico para análise
     modbus.enable_debug_logging()
@@ -408,13 +417,13 @@ if __name__ == "__main__":
     )
     
     print(f"🔌 Conectando ao dispositivo {modbus.host}...")
-    
+
     # Conecta
     if not modbus.connect():
         print("❌ Erro ao conectar após todas as tentativas!")
         print("\n💡 SUGESTÕES:")
         print("   • Verifique se o dispositivo está energizado")
-        print("   • Confirme o IP do gateway (atual: 10.0.2.217)")
+        print(f"   • Confirme o IP do gateway (atual: {ip_modbus})")
         print("   • Teste com unit_id diferente (atual: 1)")
         print("   • Verifique conexão RS485 A/B")
         exit(1)

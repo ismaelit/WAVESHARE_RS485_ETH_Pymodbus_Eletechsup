@@ -5,7 +5,7 @@ Sistema simplificado para controle de múltiplos módulos Eletechsup via Modbus 
 
 COMANDOS PRINCIPAIS:
 - 1.5: Toggle saída 5 do módulo 1
-- on2.3: Ligar saída 3 do módulo 2  
+- on2.3: Ligar saída 3 do módulo 2
 - off1.12: Desligar saída 12 do módulo 1
 - all_on.2: Ligar todas saídas do módulo 2
 - out1: Ler todas saídas do módulo 1
@@ -21,6 +21,11 @@ import signal
 import threading
 import queue
 from datetime import datetime
+import os
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # Configurações globais
 INTERVALO_LEITURA = 0.5          # 500ms para leitura automática das entradas
@@ -31,17 +36,14 @@ TIMEOUT_COMANDOS = 8.0           # Timeout para threads
 
 class MonitorMultiModulo:
     def __init__(self):
-        # Configurações de rede
-        self.gateway_ip = "10.0.2.217"
-        self.gateway_porta = 502
-        
-        # Configuração dos módulos (considerados sempre existentes)
-        self.configuracoes_modulos = {
-            1: {'max_portas': 16, 'tem_entradas': True},   # Módulo 1: 16 portas com entradas
-            2: {'max_portas': 4, 'tem_entradas': False},    # Módulo 2: 4 portas sem entradas
-            # 3: {'max_portas': 4, 'tem_entradas': False}    # Módulo 3: 4 portas sem entradas
-        }
-        
+        # Configurações de rede carregadas do .env
+        self.gateway_ip = os.getenv("MODBUS_IP", "10.0.2.70")
+        self.gateway_porta = int(os.getenv("MODBUS_PORT", "502"))
+
+        # Carrega configuração de módulos do .env
+        self.configuracoes_modulos = self._carregar_configuracao_modulos()
+        self.modo_operacao = "ÚNICO" if len(self.configuracoes_modulos) == 1 else "MULTI-MÓDULO"
+
         self.modulos_enderecos = list(self.configuracoes_modulos.keys())
         self.modulos = {}
         self.executando = True
@@ -66,6 +68,36 @@ class MonitorMultiModulo:
         
         # Inicializa módulos
         self._inicializar_modulos()
+
+    def _carregar_configuracao_modulos(self):
+        """Carrega configuração de módulos do arquivo .env"""
+        configuracoes = {}
+
+        # Lê a lista de módulos ativos (padrão: apenas módulo 1)
+        modulos_str = os.getenv("MODULOS", "1")
+        modulos_ativos = [int(m.strip()) for m in modulos_str.split(',') if m.strip()]
+
+        print(f"🔍 Detectados {len(modulos_ativos)} módulo(s) no .env: {modulos_ativos}")
+
+        # Carrega configuração de cada módulo
+        for modulo_id in modulos_ativos:
+            portas = int(os.getenv(f"MODULO_{modulo_id}_PORTAS", "16"))
+            entradas_str = os.getenv(f"MODULO_{modulo_id}_ENTRADAS", "true").lower()
+            tem_entradas = entradas_str in ['true', '1', 'yes', 'sim']
+
+            configuracoes[modulo_id] = {
+                'max_portas': portas,
+                'tem_entradas': tem_entradas
+            }
+
+            print(f"   ✅ M{modulo_id}: {portas} portas, entradas={'SIM' if tem_entradas else 'NÃO'}")
+
+        # Validação: pelo menos um módulo deve estar configurado
+        if not configuracoes:
+            print("⚠️  Nenhum módulo configurado no .env, usando padrão (M1)")
+            configuracoes = {1: {'max_portas': 16, 'tem_entradas': True}}
+
+        return configuracoes
 
     def signal_handler(self, sig, frame):
         """Encerra threads ao receber Ctrl+C"""
@@ -116,21 +148,29 @@ class MonitorMultiModulo:
     def _ler_estado_inicial(self, unit_id):
         """Lê estado inicial de todas as portas do módulo"""
         config = self.configuracoes_modulos[unit_id]
-        
-        # Lê entradas se o módulo as possui
-        if config['tem_entradas']:
-            entradas = self.modulos[unit_id].le_status_entradas()
-            if entradas:
-                self.estados_entradas[unit_id] = entradas
-                entradas_ativas = [i+1 for i, x in enumerate(entradas) if x]
-                print(f"      📥 Entradas: {entradas_ativas if entradas_ativas else 'Nenhuma'}")
-        
-        # Lê saídas
-        saidas = self.modulos[unit_id].le_status_saidas_digitais()
-        if saidas:
-            self.estados_saidas[unit_id] = saidas[:config['max_portas']]
-            saidas_ativas = [i+1 for i, x in enumerate(saidas[:config['max_portas']]) if x]
-            print(f"      📤 Saídas: {saidas_ativas if saidas_ativas else 'Nenhuma'}")
+
+        try:
+            # Lê entradas se o módulo as possui
+            if config['tem_entradas']:
+                entradas = self.modulos[unit_id].le_status_entradas()
+                if entradas:
+                    self.estados_entradas[unit_id] = entradas
+                    entradas_ativas = [i+1 for i, x in enumerate(entradas) if x]
+                    print(f"      📥 Entradas: {entradas_ativas if entradas_ativas else 'Nenhuma'}")
+                else:
+                    print(f"      ⚠️  Timeout ao ler entradas")
+
+            # Lê saídas
+            saidas = self.modulos[unit_id].le_status_saidas_digitais()
+            if saidas:
+                self.estados_saidas[unit_id] = saidas[:config['max_portas']]
+                saidas_ativas = [i+1 for i, x in enumerate(saidas[:config['max_portas']]) if x]
+                print(f"      📤 Saídas: {saidas_ativas if saidas_ativas else 'Nenhuma'}")
+            else:
+                print(f"      ⚠️  Timeout ao ler saídas")
+
+        except Exception as e:
+            print(f"      ❌ Erro ao ler estado inicial: {e}")
 
     def parsear_comando(self, comando):
         """Converte comando em (prefixo, modulo, porta)"""
@@ -484,9 +524,10 @@ class MonitorMultiModulo:
 
     def executar_monitor(self):
         """Inicia o monitor multi-módulo"""
-        print("🚀 MONITOR MULTI-MÓDULO - 25IOB16")
+        print(f"🚀 MONITOR {self.modo_operacao} - 25IOB16")
         print("=" * 50)
         print("📋 CONFIGURAÇÕES:")
+        print(f"   • Modo: {self.modo_operacao}")
         print(f"   • Gateway: {self.gateway_ip}:{self.gateway_porta}")
         print(f"   • Módulos: {self.modulos_enderecos}")
         print(f"   • Intervalo leitura: {INTERVALO_LEITURA*1000:.0f}ms")

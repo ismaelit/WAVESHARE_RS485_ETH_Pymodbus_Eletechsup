@@ -8,7 +8,7 @@ REGISTRADORES CORRIGIDOS:
 
 MODOS SUPORTADOS:
 - 0x0000: Desabilitado (sem relação)
-- 0x0001: Auto-travamento (self-locking)  
+- 0x0001: Auto-travamento (self-locking)
 - 0x0002: Intertravamento (todos canais)
 - 0x0003: Momentâneo
 - 0x0004: Intertravamento (2 canais)
@@ -16,7 +16,7 @@ MODOS SUPORTADOS:
 
 FUNCIONALIDADES:
 - Configuração de lógica interna no hardware (sem necessidade de scripts externos)
-- Backup/restore de configurações  
+- Backup/restore de configurações
 - Detecção automática do modo atual
 - Interface simplificada com todos os modos oficiais
 - Testes integrados de funcionamento
@@ -26,6 +26,11 @@ AUTOR: Script corrigido com registradores oficiais da documentação EletechSup
 
 from modbus_25iob16_pymodbus import Modbus25IOB16Pymodbus
 import time
+import os
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
 
 class ConfiguradorLogicaInterna:
     def __init__(self, ip_modbus, porta=502, unit_id=1):
@@ -312,10 +317,10 @@ class ConfiguradorLogicaInterna:
 
 def main():
     """Função principal"""
-    # CONFIGURAÇÕES HARDCODED DO AMBIENTE
-    ip_modbus = "10.0.2.218"    # IP do gateway WAVESHARE RS485-ETH
-    porta_modbus = 502          # Porta padrão Modbus TCP
-    endereco_modbus = 1         # Endereço do módulo 25IOB16 (unit_id)
+    # CONFIGURAÇÕES CARREGADAS DO .env
+    ip_modbus = os.getenv("MODBUS_IP", "10.0.2.70")           # IP do gateway WAVESHARE RS485-ETH
+    porta_modbus = int(os.getenv("MODBUS_PORT", "502"))       # Porta padrão Modbus TCP
+    endereco_modbus = int(os.getenv("MODBUS_UNIT_ID", "1"))   # Endereço do módulo 25IOB16 (unit_id)
     
     print("=" * 70)
     print("🔧 CONFIGURADOR DE LÓGICA INTERNA - MÓDULO 25IOB16")

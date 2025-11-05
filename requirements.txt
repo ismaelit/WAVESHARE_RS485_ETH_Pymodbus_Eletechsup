@@ -4,6 +4,9 @@
 # Biblioteca principal para comunicação Modbus TCP
 pymodbus>=3.0.0
 
+# Gerenciamento de variáveis de ambiente
+python-dotenv>=1.0.0
+
 # Dependências opcionais para melhor performance
 # (descomente se necessário)
 # pyserial>=3.5
